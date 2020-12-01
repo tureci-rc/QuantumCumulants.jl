@@ -62,19 +62,21 @@ cf = generate_ode(c,ps)
 u0_c = initial_values(c,sol.u[end])
 p0_c = (p0..., sol.u[end]...)
 prob_c = ODEProblem(cf,u0_c,(0.0,500.0),p0_c)
-sol_c = solve(prob_c,RK4(),save_idxs=1)</code></pre><p>Finally, we borrow the FFT function from <a href="https://qojulia.org">QuantumOptics.jl</a> and compute the spectrum from the solution. Note that this requires an equidistant list of times, and we therefore interpolate the solution from the differential equation.</p><pre><code class="language-"># Interpolate solution
+sol_c = solve(prob_c,RK4(),save_idxs=1)</code></pre><p>Finally, we borrow the FFT function from <a href="https://qojulia.org">QuantumOptics.jl</a> and compute the spectrum from the solution. Note that this requires an equidistant list of times, and we therefore interpolate the solution from the differential equation.</p><pre><code class="language-julia"># Interpolate solution
 τ = range(0.0, sol_c.t[end], length=15001)
 corr = sol_c.(τ)
 
 # Compute spectrum
 using QuantumOptics.timecorrelations: correlation2spectrum
-ω, s_fft = correlation2spectrum(τ, corr)
-nothing # hide</code></pre><p>Now, in order to compare we also compute the spectrum by constructing it directly from the correlation function and plot the results.</p><pre><code class="language-"># Spectrum
+ω, s_fft = correlation2spectrum(τ, corr)</code></pre><p>Now, in order to compare we also compute the spectrum by constructing it directly from the correlation function and plot the results.</p><pre><code class="language-julia"># Spectrum
 S = Spectrum(c,ps)
 s_laplace = S(ω,sol.u[end],p0)
-nothing # hide
 
 plot(ω, s_fft, label=&quot;Spectrum (FFT)&quot;, xlabel=&quot;ω&quot;)
 plot!(ω, s_laplace, label=&quot;Spectrum (Laplace)&quot;)
-xlims!(-3,3)
-savefig(&quot;laser-spectrum.svg&quot;) # hide</code></pre><p><img src="laser-spectrum.svg" alt="svg"/></p><p>As expected, both methods yield exactly the same spectrum. The difference is just in the method used, with the Laplace transform having a computational advantage.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../api/">« API</a><a class="docs-footer-nextpage" href="../mollow/">Mollow Triplet »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> on <span class="colophon-date" title="Tuesday 1 December 2020 14:39">Tuesday 1 December 2020</span>. Using Julia version 1.5.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+xlims!(-3,3)</code></pre><pre class="documenter-example-output">/home/runner/.julia/packages/GR/BwGt2/src/../deps/gr/bin/gksqt: error while loading shared libraries: libQt5Widgets.so.5: cannot open shared object file: No such file or directory
+connect: Connection refused
+GKS: can&#39;t connect to GKS socket application
+
+GKS: Open failed in routine OPEN_WS
+GKS: GKS not in proper state. GKS must be either in the state WSOP or WSAC in routine ACTIVATE_WS</pre><p><img src="../laser-spectrum.svg" alt="svg"/></p><p>As expected, both methods yield exactly the same spectrum. The difference is just in the method used, with the Laplace transform having a computational advantage.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../api/">« API</a><a class="docs-footer-nextpage" href="../mollow/">Mollow Triplet »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> on <span class="colophon-date" title="Tuesday 1 December 2020 15:17">Tuesday 1 December 2020</span>. Using Julia version 1.5.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
