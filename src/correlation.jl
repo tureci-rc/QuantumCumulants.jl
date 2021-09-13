@@ -601,3 +601,152 @@ function _find_dependent(r, a0)
         return r
     end
 end
+
+# filter-cavity spectrum
+
+struct FilterSpectrum{FOP,DE0,DE,S}#{FOP,DE0,DE,FH,FJ,FR,S}
+    f_op::FOP
+    de0::DE0
+    de::DE
+    # f_hamiltonian::FH
+    # f_jumps::FJ
+    # f_rates::FR
+    steady_state::S
+end
+
+function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
+                            steady_state=false, add_subscript=0,
+                            filter_func=nothing, mix_choice=maximum,
+                            order=nothing,
+                            simplify=true, kwargs...)
+    iv = de0.iv
+    Δf_ = f_params[1]
+    gf_ = f_params[2]
+    κf_ = f_params[3]
+    H0 = de0.hamiltonian
+    J0 = de0.jumps
+    h0 = hilbert(H0)
+
+    h = h0⊗(FockSpace(:filtercavityspace)) #hilbert(f_op) # full hilbert space
+    f_op = Destroy(h,f_ex,length(h.spaces))
+    int_op_new = _new_operator(int_op, h)
+
+    H = _new_operator(H0, h) - Δf_*f_op'f_op + gf_*(f_op*int_op_new + adjoint(f_op*int_op_new))
+    J = [[_new_operator(j, h) for j in J0]..., f_op]
+    rates = [de0.rates..., κf_]
+    lhs_new = [_new_operator(l, h) for l in de0.states]
+
+    order_ = if order===nothing
+        if de0.order===nothing
+            de0.order
+            order_lhs = maximum(get_order(l) for l in de0.states)
+            order_lhs
+        else
+            de0.order
+        end
+    else
+        order
+    end
+
+    if order_==1
+        de_f = meanfield(f_op,H,J;rates=rates,iv=iv,order=order_)
+    else
+        de_f = meanfield(f_op'f_op,H,J;rates=rates,iv=iv,order=order_)
+    end
+    ### here ###
+    _complete_filtercav!(de_f, length(h.spaces), lhs_new, order_, steady_state;
+                            filter_func=filter_func,
+                            mix_choice=mix_choice,
+                            simplify=simplify,
+                            kwargs...)
+
+    varmap = make_varmap(lhs_new, de0.iv)
+    de0_ = begin
+        eqs = Symbolics.Equation[]
+        eqs_op = Symbolics.Equation[]
+        ops = map(undo_average, lhs_new)
+        for i=1:length(de0.equations)
+            rhs = _new_operator(de0.equations[i].rhs, h)
+            rhs_op = _new_operator(de0.operator_equations[i].rhs, h)
+            push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
+            push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
+        end
+        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,de0.rates,de0.iv,varmap,order_)
+    end
+
+    return CorrelationFunction(op1_, op2_, op2_0, de0_, de, steady_state)
+end
+
+
+function _complete_filtercav!(de_f,aon_f,lhs_new,order,steady_state;
+                                mix_choice=maximum,
+                                simplify=true,
+                                filter_func=nothing,
+                                kwargs...)
+    vs = de_f.states
+    H = de_f.hamiltonian
+    J = de_f.jumps
+    rates = de_f.rates
+
+    vhash = map(hash, vs)
+    vs′ = map(_conj, vs)
+    vs′hash = map(hash, vs′)
+    filter!(!in(vhash), vs′hash)
+    missed = find_missing(de_f.equations, vhash, vs′hash; get_adjoints=false)
+
+    vhash_new = map(hash, lhs_new)
+    vhash_new′ = map(hash, _adjoint.(lhs_new))
+    filter!(!in(vhash_new), vhash_new′)
+
+    function _filter_aon(x)
+        aon = acts_on(x)
+        return (aon_f in aon)
+    end
+    ### steady state ###
+
+    filter!(_filter_aon, missed)
+    isnothing(filter_func) || filter!(filter_func, missed) # User-defined filter
+
+    filter_reds = de_f isa ScaledMeanfieldEquations
+    filter_reds && filter_redundants!(missed, de_f.scale_aons, de_f.names)
+
+    while !isempty(missed)
+        ops_ = [SymbolicUtils.arguments(m)[1] for m in missed]
+        me = meanfield(ops_,de_f.hamiltonian,de_f.jumps;
+                                rates=de_f.rates,
+                                simplify=simplify,
+                                order=order,
+                                iv=de_f.iv,
+                                kwargs...)
+
+        _append!(de_f, me)
+
+        vhash_ = hash.(me.states)
+        vs′hash_ = hash.(_conj.(me.states))
+        append!(vhash, vhash_)
+        for i=1:length(vhash_)
+            vs′hash_[i] ∈ vhash_ || push!(vs′hash, vs′hash_[i])
+        end
+
+        missed = find_missing(me.equations, vhash, vs′hash; get_adjoints=false)
+        filter!(_filter_aon, missed)
+        isnothing(filter_func) || filter!(filter_func, missed) # User-defined filter
+        filter_reds && filter_redundants!(missed, de_f.scale_aons, de_f.names)
+    end
+
+    if !isnothing(filter_func)
+        # Find missing values that are filtered by the custom filter function,
+        # but still occur on the RHS; set those to 0
+        missed = find_missing(de_f.equations, vhash, vs′hash; get_adjoints=false)
+        filter!(!filter_func, missed)
+        filter_reds && filter_redundants!(missed, de_f.scale_aons, de_f.names)
+        missed_adj = map(_adjoint, missed)
+        subs = Dict(vcat(missed, missed_adj) .=> 0)
+        for i=1:length(de_f.equations)
+            de_f.equations[i] = substitute(de_f.equations[i], subs)
+            de_f.states[i] = de_f.equations[i].lhs
+        end
+    end
+
+    return de_f
+end
