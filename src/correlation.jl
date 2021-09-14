@@ -660,21 +660,21 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
                             simplify=simplify,
                             kwargs...)
 
-    varmap = make_varmap(lhs_new, de0.iv)
-    de0_ = begin
-        eqs = Symbolics.Equation[]
-        eqs_op = Symbolics.Equation[]
-        ops = map(undo_average, lhs_new)
-        for i=1:length(de0.equations)
-            rhs = _new_operator(de0.equations[i].rhs, h)
-            rhs_op = _new_operator(de0.operator_equations[i].rhs, h)
-            push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
-            push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
-        end
-        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,de0.rates,de0.iv,varmap,order_)
-    end
-
-    return CorrelationFunction(op1_, op2_, op2_0, de0_, de, steady_state)
+    # varmap = make_varmap(lhs_new, de0.iv)
+    # de0_ = begin
+    #     eqs = Symbolics.Equation[]
+    #     eqs_op = Symbolics.Equation[]
+    #     ops = map(undo_average, lhs_new)
+    #     for i=1:length(de0.equations)
+    #         rhs = _new_operator(de0.equations[i].rhs, h)
+    #         rhs_op = _new_operator(de0.operator_equations[i].rhs, h)
+    #         push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
+    #         push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
+    #     end
+    #     MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,de0.rates,de0.iv,varmap,order_)
+    # end
+    return FilterSpectrum(f_op, de0, de_f, steady_state)
+    # return CorrelationFunction(op1_, op2_, op2_0, de0_, de, steady_state)
 end
 
 
@@ -749,4 +749,27 @@ function _complete_filtercav!(de_f,aon_f,lhs_new,order,steady_state;
     end
 
     return de_f
+end
+
+function (s::FilterSpectrum)(ω::Real,ps,sol_sys,pf)
+    if s.steady_state
+        if isa(sol_sys.prob, ODEProblem)
+            u_sol = sol_sys.u[end]
+        else
+            u_sol = sol_sys.u[end]
+        end
+    end
+    u0_f = zeros(ComplexF64, length(s.de))
+    sys_f = ODESystem()
+    # prob_f =
+
+    # A = s.Afunc[1](ω,usteady,ps)
+    # b = s.bfunc[1](usteady,ps)
+    # if abs(ω) <= wtol
+    #     b_ = b
+    # else
+    #     c = s.cfunc[1](ω,usteady,ps)
+    #     b_ = b .+ c
+    # end
+    # return 2*real(getindex(A \ b_, 1))
 end
