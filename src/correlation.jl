@@ -37,12 +37,14 @@ function CorrelationFunction(op1,op2,de0::AbstractMeanfieldEquations;
 
     H0 = de0.hamiltonian
     J0 = de0.jumps
+    Jd0 = de0.jumps_dagger
 
     op1_ = _new_operator(op1, h)
     op2_ = _new_operator(op2, h, length(h.spaces); add_subscript=add_subscript)
     op2_0 = _new_operator(op2, h)
     H = _new_operator(H0, h)
     J = [_new_operator(j, h) for j in J0]
+    Jd = [_new_operator(j, h) for j in Jd0]
     lhs_new = [_new_operator(l, h) for l in de0.states]
 
     order_ = if order===nothing
@@ -60,7 +62,7 @@ function CorrelationFunction(op1,op2,de0::AbstractMeanfieldEquations;
     op_ = op1_*op2_
     @assert get_order(op_) <= order_
 
-    de = meanfield(op_,H,J;rates=de0.rates,iv=iv,order=order_)
+    de = meanfield(op_,H,J;Jdagger=Jd,rates=de0.rates,iv=iv,order=order_)
     _complete_corr!(de, length(h.spaces), lhs_new, order_, steady_state;
                             filter_func=filter_func,
                             mix_choice=mix_choice,
@@ -78,7 +80,7 @@ function CorrelationFunction(op1,op2,de0::AbstractMeanfieldEquations;
             push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
             push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
         end
-        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,de0.rates,de0.iv,varmap,order_)
+        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,Jd,de0.rates,de0.iv,varmap,order_)
     end
 
     return CorrelationFunction(op1_, op2_, op2_0, de0_, de, steady_state)
@@ -353,6 +355,12 @@ function _make_parameter(s::Average)
 end
 _make_parameter(s::SymbolicUtils.Symbolic{<:Parameter}) = s
 
+function _make_parameter_t(s::Average, t)
+    name = Symbol(string(s),"($t)")
+    return SymbolicUtils.Sym{Parameter}(name)
+end
+
+
 ### Auxiliary functions for CorrelationFunction
 function _new_hilbert(h::ProductSpace, aon)
     if length(aon)==1
@@ -422,6 +430,7 @@ function _complete_corr!(de,aon0,lhs_new,order,steady_state;
     vs = de.states
     H = de.hamiltonian
     J = de.jumps
+    Jd = de.jumps_dagger
     rates = de.rates
 
     vhash = map(hash, vs)
@@ -455,8 +464,9 @@ function _complete_corr!(de,aon0,lhs_new,order,steady_state;
 
     while !isempty(missed)
         ops_ = [SymbolicUtils.arguments(m)[1] for m in missed]
-        me = meanfield(ops_,de.hamiltonian,de.jumps;
-                                rates=de.rates,
+        me = meanfield(ops_,H,J;
+                                Jdagger=Jd,
+                                rates=rates,
                                 simplify=simplify,
                                 order=order,
                                 iv=de.iv,
@@ -604,27 +614,27 @@ end
 
 # filter-cavity spectrum
 
-struct FilterSpectrum{FOP,DE0,DE,S}#{FOP,DE0,DE,FH,FJ,FR,S}
+struct FilterSpectrum{FOP,DE0,DE,S,IV}#,SOL}#{FOP,DE0,DE,FH,FJ,FR,S}
     f_op::FOP
     de0::DE0
     de::DE
-    # f_hamiltonian::FH
-    # f_jumps::FJ
-    # f_rates::FR
     steady_state::S
+    iv::IV
+    #sol::SOL
 end
 
-function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
+function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations,t;
                             steady_state=false, add_subscript=0,
                             filter_func=nothing, mix_choice=maximum,
                             order=nothing,
                             simplify=true, kwargs...)
-    iv = de0.iv
+    iv = t
     Δf_ = f_params[1]
     gf_ = f_params[2]
     κf_ = f_params[3]
     H0 = de0.hamiltonian
     J0 = de0.jumps
+    Jd0 = de0.jumps_dagger
     h0 = hilbert(H0)
 
     h = h0⊗(FockSpace(:filtercavityspace)) #hilbert(f_op) # full hilbert space
@@ -633,6 +643,7 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
 
     H = _new_operator(H0, h) - Δf_*f_op'f_op + gf_*(f_op*int_op_new + adjoint(f_op*int_op_new))
     J = [[_new_operator(j, h) for j in J0]..., f_op]
+    Jd = [[_new_operator(j, h) for j in Jd0]..., f_op']
     rates = [de0.rates..., κf_]
     lhs_new = [_new_operator(l, h) for l in de0.states]
 
@@ -649,9 +660,9 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
     end
 
     if order_==1
-        de_f = meanfield(f_op,H,J;rates=rates,iv=iv,order=order_)
+        de_f = meanfield(f_op,H,J;rates=rates,iv=t,order=order_)
     else
-        de_f = meanfield(f_op'f_op,H,J;rates=rates,iv=iv,order=order_)
+        de_f = meanfield(f_op'f_op,H,J;rates=rates,iv=t,order=order_)
     end
     ### here ###
     _complete_filtercav!(de_f, length(h.spaces), lhs_new, order_, steady_state;
@@ -660,23 +671,22 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
                             simplify=simplify,
                             kwargs...)
 
-    # varmap = make_varmap(lhs_new, de0.iv)
-    # de0_ = begin
-    #     eqs = Symbolics.Equation[]
-    #     eqs_op = Symbolics.Equation[]
-    #     ops = map(undo_average, lhs_new)
-    #     for i=1:length(de0.equations)
-    #         rhs = _new_operator(de0.equations[i].rhs, h)
-    #         rhs_op = _new_operator(de0.operator_equations[i].rhs, h)
-    #         push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
-    #         push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
-    #     end
-    #     MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,de0.rates,de0.iv,varmap,order_)
-    # end
-    return FilterSpectrum(f_op, de0, de_f, steady_state)
-    # return CorrelationFunction(op1_, op2_, op2_0, de0_, de, steady_state)
-end
+    varmap = make_varmap(lhs_new, t)
+    de0_ = begin
+        eqs = Symbolics.Equation[]
+        eqs_op = Symbolics.Equation[]
+        ops = map(undo_average, lhs_new)
+        for i=1:length(de0.equations)
+            rhs = _new_operator(de0.equations[i].rhs, h)
+            rhs_op = _new_operator(de0.operator_equations[i].rhs, h)
+            push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
+            push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
+        end
+        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,Jd,de0.rates,t,varmap,order_)
+    end
 
+    return FilterSpectrum(f_op, de0_, de_f, steady_state, t)
+end
 
 function _complete_filtercav!(de_f,aon_f,lhs_new,order,steady_state;
                                 mix_choice=maximum,
@@ -760,6 +770,8 @@ function (s::FilterSpectrum)(ω::Real,ps,sol_sys,pf)
         end
     end
     u0_f = zeros(ComplexF64, length(s.de))
+
+
     sys_f = ODESystem()
     # prob_f =
 
@@ -772,4 +784,145 @@ function (s::FilterSpectrum)(ω::Real,ps,sol_sys,pf)
     #     b_ = b .+ c
     # end
     # return 2*real(getindex(A \ b_, 1))
+end
+
+# function MTK.ODESystem(c::FilterSpectrum; kwargs...)
+#     τ = MTK.independent_variable(c.de)
+#
+#     ps = []
+#     for eq∈c.de.equations
+#         MTK.collect_vars!([],ps,eq.rhs,τ)
+#     end
+#     unique!(ps)
+#
+#     # if c.steady_state
+#     #     steady_vals = c.de0.states
+#     #     steady_hashes = map(hash, steady_vals)
+#     #     # avg = average(c.op2_0)
+#     #     # h = hash(avg)
+#     #     # avg_adj = _adjoint(avg)
+#     #     # h′ = hash(avg_adj)
+#     #     # idx = findfirst(isequal(h), steady_hashes)
+#     #     # if idx === nothing
+#     #     #     idx_ = findfirst(isequal(h′), steady_hashes)
+#     #     #     if idx_ === nothing
+#     #     #         de = c.de
+#     #     #     else
+#     #     #         subs = Dict(average(c.op2) => _adjoint(steady_vals[idx_]))
+#     #     #         de = substitute(c.de, subs)
+#     #     #     end
+#     #     # else
+#     #     #     subs = Dict(average(c.op2) => steady_vals[idx])
+#     #     #     de = substitute(c.de, subs)
+#     #     # end
+#     #     # ps_ = [ps..., steady_vals...]
+#     # else
+#     #     # avg = average(c.op2_0)
+#     #     # if avg ∈ Set(c.de0.states)
+#     #     #     avg2 = average(c.op2)
+#     #     #     ps_ = [ps..., avg]
+#     #     #     de = substitute(c.de, Dict(avg2 => avg))
+#     #     # elseif _conj(avg) ∈ Set(c.de0.states)
+#     #     #     avg2 = average(c.op2)
+#     #     #     ps_ = [ps..., _conj(avg)]
+#     #     #     de = substitute(c.de, Dict(avg2 => avg))
+#     #     # else
+#     #     ps_ = [ps...]
+#     #     de = c.de
+#     #     # end
+#     # end
+#     steady_vals = c.de0.states
+#     steady_hashes = map(hash, steady_vals)
+#     ps_ = [ps..., steady_vals...]
+#
+#     ps_avg = filter(x->x isa Average, ps_)
+#     ps_adj = map(_conj, ps_avg)
+#     filter!(x->!(x ∈ Set(ps_avg)), ps_adj)
+#     ps_adj_hash = hash.(ps_adj)
+#
+#     de_ = deepcopy(c.de)
+#     for i=1:length(c.de.equations)
+#         lhs = de_.equations[i].lhs
+#         rhs = substitute_conj(de_.equations[i].rhs, ps_adj, ps_adj_hash)
+#         de_.equations[i] = Symbolics.Equation(lhs, rhs)
+#     end
+#     for i=1:length(steady_vals)
+#         push!(de_.equations, Symbolics.Equation(steady_vals[i], 0))
+#     end
+#     push!(de_.varmap, make_varmap(steady_vals, de_.iv)...)
+#     # avg0 = average(c.op2_0)
+#     # if c.steady_state
+#     #     steady_params = map(_make_parameter, steady_vals)
+#     #     subs_params = Dict(steady_vals .=> steady_params)
+#     #     de_ = substitute(de_, subs_params)
+#     # elseif avg0 ∈ Set(c.de0.states)
+#     #     avg0_par = _make_parameter(avg0)
+#     #     de_ = substitute(de_, Dict(avg0 => avg0_par))
+#     # elseif _conj(avg0) ∈ Set(c.de0.states)
+#     #     avg0_par = _make_parameter(_conj(avg0))
+#     #     de_ = substitute(de_, Dict(_conj(avg0) => avg0_par))
+#     # end
+#     # steady_params = [_make_parameter_t(steady_vals[i], τ) for i=1:length(steady_vals)] # map(_make_parameter, steady_vals)
+#     # steady_params = map(_make_parameter, steady_vals)
+#     # subs_params = Dict(steady_vals .=> steady_params)
+#     # de_ = substitute(de_, subs_params)
+#     eqs = MTK.equations(de_)
+#     # ode = MTK.ODESystem(eqs, τ; kwargs...)
+#     # ode.states = ode.states[1:11]
+#     return MTK.ODESystem(eqs, τ; kwargs...)
+# end
+
+# filter cavity eqs
+function MTK.equations(fc::FilterSpectrum)
+    me_s = fc.de0 #system
+    me_f = fc.de #filter cavities
+
+    # Get the MTK variables
+    varmap_s = me_s.varmap
+    vs_s = MTK.states(me_s)
+    vhash_s = map(hash, vs_s)
+    #
+    varmap_f = me_f.varmap
+    vs_f = MTK.states(me_f)
+    vhash_f = map(hash, vs_f)
+    #
+    vs = [vs_s..., vs_f...]
+    vhash = [vhash_s..., vhash_f...]
+    varmap = [varmap_s..., varmap_f...]
+    # Substitute conjugate variables by explicit conj
+    vs′ = map(_conj, vs)
+    vs′hash = map(hash, vs′)
+    i = 1
+    while i <= length(vs′)
+        if vs′hash[i] ∈ vhash
+            deleteat!(vs′, i)
+            deleteat!(vs′hash, i)
+        else
+            i += 1
+        end
+    end
+    rhs_f = [substitute_conj(eq.rhs, vs′, vs′hash) for eq∈me_f.equations]
+
+    # Substitute to MTK variables on rhs
+    subs = Dict(varmap)
+    rhs_f = [substitute(r, subs) for r∈rhs_f]
+    vs_mtk_f = getindex.(varmap_f, 2)
+
+    # Return equations
+    t_fc = MTK.independent_variable(me_f)
+    D = MTK.Differential(t_fc)
+
+    t = fc.iv
+    eqs_f = [Symbolics.Equation(D(vs_mtk_f[i]), rhs_f[i]) for i=1:length(vs_f)]
+    # system averages -> parameters(t)
+    vs_mtk_s = getindex.(varmap_s, 2)
+    sys_avgs_t = [eval(Meta.parse("sys_avg_t$(i)(t) = sol_u_t$(i)(t)"))  for i=1:length(varmap_s)]
+    for i=1:length(sys_avgs_t)
+        eval(Meta.parse("MTK.@register sys_avg_t$(i)(t)"))
+    end
+    # eval(Meta.parse("sys_avg_t1(t)"))
+    eqs_s = [Symbolics.Equation(vs_mtk_s[i],
+        eval(Meta.parse("sys_avg_t$(i)(t)"))) for i=1:length(sys_avgs_t)]
+    eqs = [eqs_f..., eqs_s...]
+    return eqs
 end
