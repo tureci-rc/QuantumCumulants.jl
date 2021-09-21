@@ -11,6 +11,10 @@ import ModelingToolkit
 const MTK = ModelingToolkit
 import ModelingToolkit: ⊗ # just to avoid conflicts
 
+# change in project.toml
+import OrdinaryDiffEq
+import SteadyStateDiffEq
+
 using Combinatorics: partitions, combinations
 
 export HilbertSpace, ProductSpace, ⊗, tensor,
@@ -23,7 +27,7 @@ export HilbertSpace, ProductSpace, ⊗, tensor,
         Average, average, cumulant_expansion, get_order, cumulant,
         find_missing, complete, complete!, find_operators, fundamental_operators,
             unique_ops, unique_ops!,
-        CorrelationFunction, Spectrum, correlation_u0, correlation_p0,
+        CorrelationFunction, Spectrum, correlation_u0, correlation_p0, FilterSpectrum,
         ClusterSpace,
         scale,
         transition_superscript

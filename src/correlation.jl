@@ -758,7 +758,7 @@ function _complete_filtercav!(de_f,aon_f,lhs_new,order,steady_state;
 end
 
 # filter cavity eqs
-function equations_fc(fc::FilterSpectrum)
+function equations_fc_timedependent(fc::FilterSpectrum)
     me_s = fc.de0 #system
     me_f = fc.de #filter cavities
 
@@ -814,45 +814,96 @@ function equations_fc(fc::FilterSpectrum)
     return eqs, sys_avg
 end
 
-
-using OrdinaryDiffEq
-
-function (s::FilterSpectrum)(ω,ps::Vector{<:Pair},sol_sys,pf::Vector{<:Pair};t_end=nothing, save_timeevolution=false)
-    # if s.steady_state #true
-    #     if isa(sol_sys.prob, ODEProblem)
-    #         u_sol = sol_sys.u[end]
-    #     else
-    #         u_sol = sol_sys.u[end]
-    #     end
-    # end
-    global sol_avg_fs = sol_sys
-    if isnothing(t_end)
-        t_end=sol_sys.t[end]
-    else
-        (t_end>sol_sys.t[end]) && error("Final t of the system time evolution is smaller than specified t_end.")
+# for filter spectrum with steady_state = true
+function MTK.ODESystem(c::FilterSpectrum; kwargs...)
+    τ = MTK.independent_variable(c.de)
+    ps = []
+    for eq∈c.de.equations
+        MTK.collect_vars!([],ps,eq.rhs,τ)
     end
+    unique!(ps)
+
+    steady_vals = c.de0.states
+    steady_hashes = map(hash, steady_vals)
+    ps_ = [ps..., steady_vals...]
+
+    ps_avg = filter(x->x isa Average, ps_)
+    ps_adj = map(_conj, ps_avg)
+    filter!(x->!(x ∈ Set(ps_avg)), ps_adj)
+    ps_adj_hash = hash.(ps_adj)
+
+    de = c.de
+    de_ = deepcopy(de)
+    for i=1:length(de.equations)
+        lhs = de_.equations[i].lhs
+        rhs = substitute_conj(de_.equations[i].rhs, ps_adj, ps_adj_hash)
+        de_.equations[i] = Symbolics.Equation(lhs, rhs)
+    end
+
+    steady_params = map(_make_parameter, steady_vals)
+    subs_params = Dict(steady_vals .=> steady_params)
+    de_ = substitute(de_, subs_params)
+
+    eqs = MTK.equations(de_)
+    return MTK.ODESystem(eqs, τ; kwargs...)
+end
+
+function filterspectrum_p0(c::FilterSpectrum, u_end, ps=Pair{Any,Any}[])
+    steady_vals = c.de0.states
+    steady_params = map(_make_parameter, steady_vals)
+    ps′ = [ps..., (steady_params .=> u_end)...]
+    return ps′
+end
+
+function (s::FilterSpectrum)(ω,ps::Vector{<:Pair},sol_sys,pf::Vector{<:Pair};
+        t_end=nothing, save_timeevolution=false, alg=Tsit5(), atol_ss=1e-4, rtol_ss=1e-4, kwargs...)
     u0_f = zeros(ComplexF64, length(s.de))
     spec = []
-    eqs = QuantumCumulants.equations_fc(s)
-    sys = MTK.ODESystem(eqs[1])
-    sys_ss = MTK.structural_simplify(sys)
-    ps_ = [ps..., pf...]
-    for i=1:length(ω)
-        ps_[end-2] = (pf[1][1] => ω[i])
-        prob_ = ODEProblem(sys_ss,u0_f,(0.0, t_end),ps_)
-        sol_ω = Base.invokelatest(solve, prob_, Tsit5())
-        if save_timeevolution # save full time evolution of the filter cavity photon number
-            push!(spec, sol_ω)
-        else
+    ps_ = [pf..., ps...]
+    if s.steady_state #true
+        isa(sol_sys.prob, OrdinaryDiffEq.ODEProblem) ? (u_sol = sol_sys.u[end]) : (u_sol = sol_sys.u[end])
+        ps_ss = filterspectrum_p0(s, u_sol, ps_)
+        sys = MTK.ODESystem(s)
+        for i=1:length(ω)
+            ps_ss[1] = (ps_ss[1][1] => ω[i])
+            prob_ = OrdinaryDiffEq.ODEProblem(sys,u0_f,(0.0, 1.0),ps_ss)
+            prob_ss = SteadyStateDiffEq.SteadyStateProblem(prob_)
+            sol_ω = SteadyStateDiffEq.solve(prob_ss, SteadyStateDiffEq.DynamicSS(alg; abstol=atol_ss, reltol=rtol_ss); kwargs...)
             if s.de.order == 1
-                push!(spec, abs2(sol_ω.u[end][1]))
+                push!(spec, abs2(sol_ω.u[1]))
             else
-                push!(spec, abs(sol_ω[end][1]))
+                push!(spec, abs(sol_ω[1]))
             end
         end
-    end
-    if !save_timeevolution
         spec = spec ./ maximum(spec)
+        return ω, spec
+    else #steady state = false
+        global sol_avg_fs = sol_sys
+        if isnothing(t_end)
+            t_end=sol_sys.t[end]
+        else
+            (t_end>sol_sys.t[end]) && error("Final t of the system time evolution is smaller than specified t_end.")
+        end
+        eqs = equations_fc_timedependent(s)
+        sys = MTK.ODESystem(eqs[1])
+        sys_ss = MTK.structural_simplify(sys)
+        for i=1:length(ω)
+            ps_[1] = (pf[1][1] => ω[i])
+            prob_ = OrdinaryDiffEq.ODEProblem(sys_ss,u0_f,(0.0, t_end),ps_)
+            sol_ω = Base.invokelatest(OrdinaryDiffEq.solve, prob_, alg; kwargs...)
+            if save_timeevolution # save full time evolution of the filter cavity photon number
+                push!(spec, sol_ω)
+            else
+                if s.de.order == 1
+                    push!(spec, abs2(sol_ω.u[end][1]))
+                else
+                    push!(spec, abs(sol_ω[end][1]))
+                end
+            end
+        end
+        if !save_timeevolution
+            spec = spec ./ maximum(spec)
+        end
+        return ω, spec
     end
-    return ω, spec
 end

@@ -12,6 +12,8 @@ ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 SymbolicUtils = "d1185830-fcd6-423d-90d6-eec64667417b"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
+OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
+SteadyStateDiffEq = "9672c7b4-1e72-59bd-8a11-6ac3964bc41f"
 
 [compat]
 Combinatorics = "1"
@@ -22,14 +24,14 @@ ModelingToolkit = "5"
 SciMLBase = "1"
 SymbolicUtils = "0.10, 0.11, 0.12, 0.13"
 Symbolics = "0.1, 1 - 1.4.1"
+OrdinaryDiffEq = "5"
+SteadyStateDiffEq = "1"
 julia = "1.4"
 
 [extras]
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
-OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 QuantumOptics = "6e0679c1-51ea-5a7c-ac74-d61b76210b0c"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-SteadyStateDiffEq = "9672c7b4-1e72-59bd-8a11-6ac3964bc41f"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
