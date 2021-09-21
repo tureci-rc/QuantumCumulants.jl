@@ -614,21 +614,19 @@ end
 
 # filter-cavity spectrum
 
-struct FilterSpectrum{FOP,DE0,DE,S,IV}#,SOL}#{FOP,DE0,DE,FH,FJ,FR,S}
+struct FilterSpectrum{FOP,DE0,DE,S}
     f_op::FOP
     de0::DE0
     de::DE
     steady_state::S
-    iv::IV
-    #sol::SOL
 end
 
-function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations,t;
+function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations;
                             steady_state=false, add_subscript=0,
                             filter_func=nothing, mix_choice=maximum,
                             order=nothing,
                             simplify=true, kwargs...)
-    iv = t
+    iv = de0.iv
     Δf_ = f_params[1]
     gf_ = f_params[2]
     κf_ = f_params[3]
@@ -646,7 +644,6 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations,t;
     Jd = [[_new_operator(j, h) for j in Jd0]..., f_op']
     rates = [de0.rates..., κf_]
     lhs_new = [_new_operator(l, h) for l in de0.states]
-
     order_ = if order===nothing
         if de0.order===nothing
             de0.order
@@ -660,9 +657,9 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations,t;
     end
 
     if order_==1
-        de_f = meanfield(f_op,H,J;rates=rates,iv=t,order=order_)
+        de_f = meanfield(f_op,H,J;rates=rates,iv=iv,order=order_)
     else
-        de_f = meanfield(f_op'f_op,H,J;rates=rates,iv=t,order=order_)
+        de_f = meanfield(f_op'f_op,H,J;rates=rates,iv=iv,order=order_)
     end
     ### here ###
     _complete_filtercav!(de_f, length(h.spaces), lhs_new, order_, steady_state;
@@ -671,7 +668,7 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations,t;
                             simplify=simplify,
                             kwargs...)
 
-    varmap = make_varmap(lhs_new, t)
+    varmap = make_varmap(lhs_new, iv)
     de0_ = begin
         eqs = Symbolics.Equation[]
         eqs_op = Symbolics.Equation[]
@@ -682,10 +679,10 @@ function FilterSpectrum(f_ex,int_op,f_params,de0::AbstractMeanfieldEquations,t;
             push!(eqs, Symbolics.Equation(lhs_new[i], rhs))
             push!(eqs_op, Symbolics.Equation(ops[i], rhs_op))
         end
-        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,Jd,de0.rates,t,varmap,order_)
+        MeanfieldEquations(eqs,eqs_op,lhs_new,ops,H,J,Jd,de0.rates,iv,varmap,order_)
     end
 
-    return FilterSpectrum(f_op, de0_, de_f, steady_state, t)
+    return FilterSpectrum(f_op, de0_, de_f, steady_state)
 end
 
 function _complete_filtercav!(de_f,aon_f,lhs_new,order,steady_state;
@@ -757,123 +754,11 @@ function _complete_filtercav!(de_f,aon_f,lhs_new,order,steady_state;
             de_f.states[i] = de_f.equations[i].lhs
         end
     end
-
     return de_f
 end
 
-function (s::FilterSpectrum)(ω::Real,ps,sol_sys,pf)
-    if s.steady_state
-        if isa(sol_sys.prob, ODEProblem)
-            u_sol = sol_sys.u[end]
-        else
-            u_sol = sol_sys.u[end]
-        end
-    end
-    u0_f = zeros(ComplexF64, length(s.de))
-
-
-    sys_f = ODESystem()
-    # prob_f =
-
-    # A = s.Afunc[1](ω,usteady,ps)
-    # b = s.bfunc[1](usteady,ps)
-    # if abs(ω) <= wtol
-    #     b_ = b
-    # else
-    #     c = s.cfunc[1](ω,usteady,ps)
-    #     b_ = b .+ c
-    # end
-    # return 2*real(getindex(A \ b_, 1))
-end
-
-# function MTK.ODESystem(c::FilterSpectrum; kwargs...)
-#     τ = MTK.independent_variable(c.de)
-#
-#     ps = []
-#     for eq∈c.de.equations
-#         MTK.collect_vars!([],ps,eq.rhs,τ)
-#     end
-#     unique!(ps)
-#
-#     # if c.steady_state
-#     #     steady_vals = c.de0.states
-#     #     steady_hashes = map(hash, steady_vals)
-#     #     # avg = average(c.op2_0)
-#     #     # h = hash(avg)
-#     #     # avg_adj = _adjoint(avg)
-#     #     # h′ = hash(avg_adj)
-#     #     # idx = findfirst(isequal(h), steady_hashes)
-#     #     # if idx === nothing
-#     #     #     idx_ = findfirst(isequal(h′), steady_hashes)
-#     #     #     if idx_ === nothing
-#     #     #         de = c.de
-#     #     #     else
-#     #     #         subs = Dict(average(c.op2) => _adjoint(steady_vals[idx_]))
-#     #     #         de = substitute(c.de, subs)
-#     #     #     end
-#     #     # else
-#     #     #     subs = Dict(average(c.op2) => steady_vals[idx])
-#     #     #     de = substitute(c.de, subs)
-#     #     # end
-#     #     # ps_ = [ps..., steady_vals...]
-#     # else
-#     #     # avg = average(c.op2_0)
-#     #     # if avg ∈ Set(c.de0.states)
-#     #     #     avg2 = average(c.op2)
-#     #     #     ps_ = [ps..., avg]
-#     #     #     de = substitute(c.de, Dict(avg2 => avg))
-#     #     # elseif _conj(avg) ∈ Set(c.de0.states)
-#     #     #     avg2 = average(c.op2)
-#     #     #     ps_ = [ps..., _conj(avg)]
-#     #     #     de = substitute(c.de, Dict(avg2 => avg))
-#     #     # else
-#     #     ps_ = [ps...]
-#     #     de = c.de
-#     #     # end
-#     # end
-#     steady_vals = c.de0.states
-#     steady_hashes = map(hash, steady_vals)
-#     ps_ = [ps..., steady_vals...]
-#
-#     ps_avg = filter(x->x isa Average, ps_)
-#     ps_adj = map(_conj, ps_avg)
-#     filter!(x->!(x ∈ Set(ps_avg)), ps_adj)
-#     ps_adj_hash = hash.(ps_adj)
-#
-#     de_ = deepcopy(c.de)
-#     for i=1:length(c.de.equations)
-#         lhs = de_.equations[i].lhs
-#         rhs = substitute_conj(de_.equations[i].rhs, ps_adj, ps_adj_hash)
-#         de_.equations[i] = Symbolics.Equation(lhs, rhs)
-#     end
-#     for i=1:length(steady_vals)
-#         push!(de_.equations, Symbolics.Equation(steady_vals[i], 0))
-#     end
-#     push!(de_.varmap, make_varmap(steady_vals, de_.iv)...)
-#     # avg0 = average(c.op2_0)
-#     # if c.steady_state
-#     #     steady_params = map(_make_parameter, steady_vals)
-#     #     subs_params = Dict(steady_vals .=> steady_params)
-#     #     de_ = substitute(de_, subs_params)
-#     # elseif avg0 ∈ Set(c.de0.states)
-#     #     avg0_par = _make_parameter(avg0)
-#     #     de_ = substitute(de_, Dict(avg0 => avg0_par))
-#     # elseif _conj(avg0) ∈ Set(c.de0.states)
-#     #     avg0_par = _make_parameter(_conj(avg0))
-#     #     de_ = substitute(de_, Dict(_conj(avg0) => avg0_par))
-#     # end
-#     # steady_params = [_make_parameter_t(steady_vals[i], τ) for i=1:length(steady_vals)] # map(_make_parameter, steady_vals)
-#     # steady_params = map(_make_parameter, steady_vals)
-#     # subs_params = Dict(steady_vals .=> steady_params)
-#     # de_ = substitute(de_, subs_params)
-#     eqs = MTK.equations(de_)
-#     # ode = MTK.ODESystem(eqs, τ; kwargs...)
-#     # ode.states = ode.states[1:11]
-#     return MTK.ODESystem(eqs, τ; kwargs...)
-# end
-
 # filter cavity eqs
-function MTK.equations(fc::FilterSpectrum)
+function equations_fc(fc::FilterSpectrum)
     me_s = fc.de0 #system
     me_f = fc.de #filter cavities
 
@@ -909,20 +794,65 @@ function MTK.equations(fc::FilterSpectrum)
     vs_mtk_f = getindex.(varmap_f, 2)
 
     # Return equations
-    t_fc = MTK.independent_variable(me_f)
-    D = MTK.Differential(t_fc)
+    global t = MTK.independent_variable(me_f)
+    D = MTK.Differential(t)
 
-    t = fc.iv
     eqs_f = [Symbolics.Equation(D(vs_mtk_f[i]), rhs_f[i]) for i=1:length(vs_f)]
     # system averages -> parameters(t)
     vs_mtk_s = getindex.(varmap_s, 2)
-    sys_avgs_t = [eval(Meta.parse("sys_avg_t$(i)(t) = sol_u_t$(i)(t)"))  for i=1:length(varmap_s)]
-    for i=1:length(sys_avgs_t)
-        eval(Meta.parse("MTK.@register sys_avg_t$(i)(t)"))
+    sys_avg = [eval(Meta.parse("function sys_avg$(i)(t) end")) for i=1:length(varmap_s)]
+    for i=1:length(varmap_s)
+        eval(Meta.parse("MTK.@register sys_avg$(i)(t)"))
     end
-    # eval(Meta.parse("sys_avg_t1(t)"))
     eqs_s = [Symbolics.Equation(vs_mtk_s[i],
-        eval(Meta.parse("sys_avg_t$(i)(t)"))) for i=1:length(sys_avgs_t)]
+        eval(Meta.parse("sys_avg$(i)(t)"))) for i=1:length(varmap_s)]
     eqs = [eqs_f..., eqs_s...]
-    return eqs
+    # create functions for avgs
+    for i=1:length(sys_avg)
+        eval(Meta.parse("global $(sys_avg[i])(t) = QuantumCumulants.sol_avg_fs(t)[$(i)]"))
+    end
+    return eqs, sys_avg
+end
+
+
+using OrdinaryDiffEq
+
+function (s::FilterSpectrum)(ω,ps::Vector{<:Pair},sol_sys,pf::Vector{<:Pair};t_end=nothing, save_timeevolution=false)
+    # if s.steady_state #true
+    #     if isa(sol_sys.prob, ODEProblem)
+    #         u_sol = sol_sys.u[end]
+    #     else
+    #         u_sol = sol_sys.u[end]
+    #     end
+    # end
+    global sol_avg_fs = sol_sys
+    if isnothing(t_end)
+        t_end=sol_sys.t[end]
+    else
+        (t_end>sol_sys.t[end]) && error("Final t of the system time evolution is smaller than specified t_end.")
+    end
+    u0_f = zeros(ComplexF64, length(s.de))
+    spec = []
+    eqs = QuantumCumulants.equations_fc(s)
+    sys = MTK.ODESystem(eqs[1])
+    sys_ss = MTK.structural_simplify(sys)
+    ps_ = [ps..., pf...]
+    for i=1:length(ω)
+        ps_[end-2] = (pf[1][1] => ω[i])
+        prob_ = ODEProblem(sys_ss,u0_f,(0.0, t_end),ps_)
+        sol_ω = Base.invokelatest(solve, prob_, Tsit5())
+        if save_timeevolution # save full time evolution of the filter cavity photon number
+            push!(spec, sol_ω)
+        else
+            if s.de.order == 1
+                push!(spec, abs2(sol_ω.u[end][1]))
+            else
+                push!(spec, abs(sol_ω[end][1]))
+            end
+        end
+    end
+    if !save_timeevolution
+        spec = spec ./ maximum(spec)
+    end
+    return ω, spec
 end
