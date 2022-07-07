@@ -5,7 +5,7 @@ For the application of commutation relations **QuantumCumulants.jl** implements 
 
 To obtain a numerical solution, equations derived with **QuantumCumulants.jl** can be converted to [ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl) and subsequently solved with [DifferentialEquations.jl](https://github.com/SciML/DifferentialEquations.jl).
 
-This is a fork of QuantumCumulants.jl to incorporate additional capabilities, such as stochastic evolution and conditional dynamics.
+This is a fork for adding useful functionalities, such as measurement terms and integration with stochastic solvers.
 
 ## Development status
 
