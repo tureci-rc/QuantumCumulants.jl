@@ -31,6 +31,7 @@ export HilbertSpace, ProductSpace, ⊗, tensor,
         ClusterSpace,
         scale,
         transition_superscript
+        ConditionalEquations
 
 const NO_METADATA = SymbolicUtils.NO_METADATA
 
@@ -52,6 +53,8 @@ include("cluster.jl")
 include("scale.jl")
 include("latexify_recipes.jl")
 include("printing.jl")
+include("conditional.jl")
+include("sdiffeq.jl")
 
 @deprecate heisenberg(args...; kwargs...) meanfield(args...; kwargs...)
 
